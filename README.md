@@ -56,3 +56,7 @@ Local npm package fetching was unavailable in the authoring environment. The sou
 ### Payment architecture
 
 The current wallet and loan funds are **simulations only**. For real-money operations: use regulated financial/payment partners for deposits, settlement and withdrawal. Keep provider keys in protected server functions, not Vite client variables.
+
+
+## Optional October 2026 sample data
+This edition adds a removable ten-business October test dataset. See `docs/OCTOBER_2026_SAMPLE_DATA_GUIDE.md`. Load and remove it through **Super user → Settings**. It is fictional and contains eight simulated record reviews, not statutory audits.

@@ -1,0 +1,114 @@
+// TijaPass V10 reference-domain engine. Pure, deterministic, no browser or provider API dependencies.
+// Values in TZS, amounts are non-negative integer shillings.
+export const CHART = {
+ cash:['Physical cash','asset'], bank:['Bank','asset'], mobile:['Mobile money','asset'], wallet:['Linked wallet','asset'],
+ inventory:['Inventory','asset'], receivables:['Trade receivables','asset'], groupsavings:['Group savings','asset'], equipment:['Fixed assets','asset'],
+ payables:['Trade payables','liability'], shortloan:['Short-term loans','liability'], longloan:['Long-term loans','liability'], grouploan:['Group loans','liability'],
+ capital:['Owner capital','equity'], openingEquity:['Opening equity','equity'], drawings:['Owner drawings','contraequity'],
+ sales:['Sales','income'], services:['Services','income'], otherincome:['Other business income','income'],
+ cogs:['Cost of goods sold','expense'], rent:['Rent','expense'], utilities:['Utilities','expense'], salaries:['Wages','expense'], transport:['Transport','expense'], telecom:['Telecommunications','expense'], taxes:['Taxes and licences','expense'], marketing:['Marketing','expense'], maintenance:['Maintenance','expense'], otherexpense:['Other operating costs','expense'], interest:['Loan interest','expense'], suspense:['Cash difference awaiting review','asset']
+};
+export const MONEY_ACCOUNTS=['cash','bank','mobile','wallet'];
+export const defaultConfig={closeTolerance:1000,closePercentage:1,escalateVariance:10000,qualifyingScore:70,minRating:70,creditBuffer:0.8,firstShare:0.25,secondShare:0.30,establishedShare:0.35,earlyCloseHour:9,youthMaxAge:35,activeDays:10,reportMinGroup:5,duplicateMinutes:15};
+const id=prefix=>prefix+'-'+(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID().slice(0,8):Math.random().toString(36).slice(2,10)).toUpperCase();
+export const today=()=>new Date().toISOString().slice(0,10);
+export const fmt=n=>'TZS '+Math.round(Number(n)||0).toLocaleString('en-US');
+export const emptyDb=()=>({version:10,businesses:[],entries:[],staging:[],closes:[],ratings:[],fIs:[{id:'FI-TFL',name:'Tracell Finance Limited',approved:true,products:[{id:'TFL-ASSET',name:'Asset Finance',annualRate:18,feeRate:1.5,frequency:'Monthly',maxPeriods:12,min:50000,max:5000000}]}],suppliers:[],quotes:[],applications:[],loans:[],messages:[],tickets:[],notifications:[],audit:[],users:[],settings:{...defaultConfig},simulatedTime:null});
+export const starterLogins=[{email:'super@tijapass.demo',pin:'123456',role:'Super user',name:'Demo Super User'},{email:'admin@tijapass.demo',pin:'123456',role:'Data Admin',name:'Demo Accountant'},{email:'officer@tijapass.demo',pin:'123456',role:'Officer',name:'Field Officer'},{email:'fi@tijapass.demo',pin:'123456',role:'Financial Institution',name:'FI Demo',fiId:'FI-TFL'},{email:'supplier@tijapass.demo',pin:'123456',role:'Supplier',name:'Supplier Demo'},{email:'reports@tijapass.demo',pin:'123456',role:'Reports',name:'Report Viewer'}];
+const amt=n=>Math.round(Number(n)||0);
+const positive=n=>Number.isInteger(amt(n))&&amt(n)>0;
+const entryLine=(account,debit=0,credit=0)=>({account,debit:amt(debit),credit:amt(credit)});
+export function balanced(lines){return !!lines?.length && lines.every(x=>CHART[x.account]&&x.debit>=0&&x.credit>=0 && !(x.debit&&x.credit))&&lines.reduce((s,x)=>s+x.debit-x.credit,0)===0;}
+export function openingEntries(b){
+ const o=b.opening||{};const a=['cash','bank','mobile','wallet','inventory','receivables','groupsavings','equipment']; const l=['payables','shortloan','longloan','grouploan'];
+ const assets=a.map(k=>entryLine(k,amt(o[k]),0)).filter(x=>x.debit); const liabilities=l.map(k=>entryLine(k,0,amt(o[k]))).filter(x=>x.credit);
+ const delta=assets.reduce((s,x)=>s+x.debit,0)-liabilities.reduce((s,x)=>s+x.credit,0);
+ const lines=[...assets,...liabilities,entryLine('openingEquity',Math.max(0,-delta),Math.max(0,delta))].filter(x=>x.debit||x.credit);
+ return {id:'OPEN-'+b.id,businessId:b.id,date:b.openingDate||today(),description:'Approved opening position',category:'opening',lines,source:'Opening position',status:b.openingApproved?'posted':'draft',isOpening:true};
+}
+const regexes=[
+ ['rent',/(rent|pango|kodi ya (fremu|duka|nyumba))/i],['utilities',/(umeme|luku|maji|water|electric|tanesco)/i],['salaries',/(mshahara|wafanyakazi|salary|wages)/i],['telecom',/(airtime|vifurushi|bundle|internet)/i],['transport',/(nauli|usafiri|fuel|petrol|diesel|transport)/i],['taxes',/(tax|ushuru|leseni|license)/i],['marketing',/(advert|tangazo|marketing)/i],['maintenance',/(repair|matengenezo|maintenance)/i],['inventory',/(stock|bidhaa za kuuza|buy goods|bought stock|nunua bidhaa|nimenunua bidhaa)/i],['equipment',/(furniture|fridge|freezer|machine|equipment|samani|mashine)/i],['receivableCollection',/(debtor|deni la mteja|alilipa deni|received from debtor)/i],['loanIn',/(received loan|mkopo nimepata|pata mkopo|loan received)/i],['loanPay',/(loan repayment|marejesho ya mkopo|lipa mkopo)/i],['groupSaving',/(mchezo|upatu|vikoba|group savings)/i],['ownerDraw',/(personal|binafsi|nyumbani|familia|home expense|my own use)/i],['ownerCapital',/(owner capital|mtaji wangu|owner contribution|own money)/i],['services',/(huduma|service rendered|consulting fee)/i],['sales',/(mauzo|nimeuza|niliuza|sold|sale|customer paid|nimemuuza)/i],['cogs',/(cost of goods sold|cost of sales|gharama ya bidhaa zilizotoka)/i]
+];
+export const suggestCategory=(description,direction)=>{
+ const s=String(description||'').trim();for(const [category,re] of regexes)if(re.test(s))return {category,confidence:0.90};
+ return {category:direction==='in'?'sales':'otherexpense',confidence:0.30,needsClarification:true};
+};
+export const categoriesFor=direction=>direction==='in'?['sales','services','receivableCollection','loanIn','ownerCapital','groupSaving','otherincome']:direction==='transfer'?['transfer']:['inventory','cogs','rent','utilities','salaries','transport','telecom','taxes','marketing','maintenance','equipment','loanPay','groupSaving','ownerDraw','otherexpense'];
+export const createLines=(tx)=>{
+ const value=amt(tx.amount),source=tx.channel||'cash',dest=tx.destination||'bank'; if(!positive(value))throw Error('Enter a valid positive amount');if(!MONEY_ACCOUNTS.includes(source))throw Error('Choose a valid money channel');
+ let d,c;if(tx.category==='transfer'||tx.direction==='transfer'){if(source===dest||!MONEY_ACCOUNTS.includes(dest))throw Error('Select a different destination account');d=[[dest,value]];c=[[source,value]];}
+ else if(tx.category==='receivableCollection'){d=[[source,value]];c=[['receivables',value]];}
+ else if(tx.category==='loanIn'){d=[[source,value]];c=[['shortloan',value]];}
+ else if(tx.category==='financedInventory'){d=[['inventory',value]];c=[['shortloan',value]];}
+ else if(tx.category==='financeCash'){d=[[source,value]];c=[['shortloan',value]];}
+ else if(tx.category==='loanPay') {const interest=amt(tx.interest||0);if(interest<0||interest>value)throw Error('Interest cannot exceed repayment');d=[['shortloan',value-interest],...(interest?[['interest',interest]]:[])];c=[[source,value]];}
+ else if(tx.category==='groupSaving'){if(tx.direction==='in'){d=[[source,value]];c=[['groupsavings',value]];} else{d=[['groupsavings',value]];c=[[source,value]];}}
+ else if(tx.category==='ownerCapital'){d=[[source,value]];c=[['capital',value]];}
+ else if(tx.category==='ownerDraw'){d=[['drawings',value]];c=[[source,value]];}
+ else if(tx.category==='cogs'){d=[['cogs',value]];c=[['inventory',value]];}
+ else if(tx.category==='inventory'&&tx.creditPurchase){d=[['inventory',value]];c=[['payables',value]];}
+ else if(tx.category==='sales'&&tx.creditSale){d=[['receivables',value]];c=[['sales',value]];}
+ else if(['sales','services','otherincome'].includes(tx.category)){d=[[source,value]];c=[[tx.category,value]];}
+ else if(['inventory','equipment','rent','utilities','salaries','transport','telecom','taxes','marketing','maintenance','otherexpense'].includes(tx.category)){d=[[tx.category,value]];c=[[source,value]];}
+ else throw Error('Transaction type needs clarification');
+ const lines=[...d.map(([a,v])=>entryLine(a,v,0)),...c.map(([a,v])=>entryLine(a,0,v))].filter(x=>x.debit||x.credit);if(!balanced(lines))throw Error('Accounting entry does not balance');return lines;
+};
+export function accountBalances(db,businessId,end){const b=db.businesses.find(x=>x.id===businessId);if(!b)return{};const all=[...(b.openingApproved && (!end || (b.openingDate||today())<=end)?[openingEntries(b)]:[]),...db.entries.filter(x=>x.businessId===businessId&&x.status==='posted'&&!x.voided&&(!end||x.date<=end))];const balances=Object.fromEntries(Object.keys(CHART).map(k=>[k,0]));for(const e of all)for(const l of e.lines||[])balances[l.account]+=l.debit-l.credit;return balances;}
+export function statement(db,businessId,start='1900-01-01',end='9999-12-31'){
+ const b=db.businesses.find(x=>x.id===businessId);if(!b)return null;const current=accountBalances(db,businessId,end);let p={sales:0,services:0,otherincome:0,cogs:0,rent:0,utilities:0,salaries:0,transport:0,telecom:0,taxes:0,marketing:0,maintenance:0,otherexpense:0,interest:0};
+ const rows=db.entries.filter(e=>e.businessId===businessId&&e.status==='posted'&&!e.voided&&e.date>=start&&e.date<=end);for(const e of rows)for(const l of e.lines){if(p[l.account]!==undefined)p[l.account]+=l.credit-l.debit;}
+ const income=p.sales+p.services+p.otherincome,expenses=-(p.cogs+p.rent+p.utilities+p.salaries+p.transport+p.telecom+p.taxes+p.marketing+p.maintenance+p.otherexpense+p.interest),profit=income-expenses;
+ const assets=['cash','bank','mobile','wallet','inventory','receivables','groupsavings','equipment'].reduce((s,k)=>s+current[k],0);const liabilities=['payables','shortloan','longloan','grouploan'].reduce((s,k)=>s-current[k],0);const equity=assets-liabilities;
+ const cashAccounts=new Set(MONEY_ACCOUNTS);let operatingIn=0,operatingOut=0,financingIn=0,financingOut=0,investingOut=0,investingIn=0;
+ for(const e of rows){let cashDelta=e.lines.filter(l=>cashAccounts.has(l.account)).reduce((s,l)=>s+l.debit-l.credit,0);if(!cashDelta)continue;
+  if(['ownerCapital','loanIn'].includes(e.category))financingIn+=Math.max(0,cashDelta);else if(['ownerDraw','loanPay'].includes(e.category))financingOut+=Math.max(0,-cashDelta);else if(['equipment','groupSaving'].includes(e.category)){if(cashDelta<0)investingOut-=cashDelta;else investingIn+=cashDelta;}else if(!['transfer','opening'].includes(e.category)){if(cashDelta>0)operatingIn+=cashDelta;else operatingOut-=cashDelta;}}
+ const openingMoney=MONEY_ACCOUNTS.reduce((s,k)=>s+accountBalances(db,businessId,new Date(new Date(start+'T00:00:00Z').getTime()-86400000).toISOString().slice(0,10))[k],0);
+ const endingMoney=MONEY_ACCOUNTS.reduce((s,k)=>s+current[k],0);
+ const accountsTotal=Object.values(current).reduce((s,v)=>s+v,0);
+ return {income,expenses,profit,p,assets,liabilities,equity,balances:current,operatingIn,operatingOut,investingIn,investingOut,financingIn,financingOut,openingMoney,endingMoney,balanced:accountsTotal===0,entryCount:rows.length,stockReliabilityNote:rows.some(e=>e.category==='inventory')&&!rows.some(e=>e.category==='cogs')?'Stock purchases recorded; cost of goods sold requires stock count/assessment.':null};
+}
+export function duplication(db,tx){return [...db.entries,...db.staging].find(e=>e.businessId===tx.businessId && !e.voided&&e.status!=='reversed'&&e.channel===tx.channel&&e.direction===tx.direction&&e.amount===tx.amount&&e.date===tx.date && !!tx.reference && tx.reference===e.reference) || null;}
+export function assessEntry(db,tx){const errors=[],warnings=[];if(!positive(tx.amount))errors.push('Provide an amount above zero.');if(!String(tx.description||'').trim())errors.push('Describe what happened.');if(tx.direction!=='transfer'&&!categoriesFor(tx.direction).includes(tx.category))errors.push('The description and money direction require clarification.');if(tx.category==='transfer'&&!tx.destination)errors.push('Choose the receiving account.');if(duplication(db,tx))errors.push('This statement reference is already recorded; attach it as evidence instead.');
+ const prior=db.entries.filter(e=>e.businessId===tx.businessId&&e.status==='posted'&&!e.voided&&e.direction===tx.direction).map(e=>e.amount);const largest=prior.length?Math.max(...prior):0;if(largest>=1000&&tx.amount>=Math.max(1000000,largest*10))warnings.push('This amount is much higher than usual; provide supporting evidence.');
+ try{tx.lines=createLines(tx)}catch(e){errors.push(e.message)}
+ const b=accountBalances(db,tx.businessId);if(tx.direction!=='in'&&!tx.creditPurchase&&tx.category!=='cogs'&&tx.category!=='transfer'&&b[tx.channel]!==undefined&&b[tx.channel]<tx.amount)warnings.push('The recorded account balance appears insufficient; reconcile first.');
+ return {errors,warnings,canPost:!errors.length&&!warnings.length};}
+export function record(db,raw,actor='Business'){const tx={...raw,id:id('TX'),status:'draft',createdAt:new Date().toISOString(),source:raw.source||'Guided',reviewedBy:null};const check=assessEntry(db,tx);if(check.errors.length)return {db,check,transaction:null};tx.status=check.warnings.length?'review':'posted';tx.lines=createLines(tx);const next=structuredClone(db);(check.warnings.length?next.staging:next.entries).unshift(tx);next.audit.unshift({id:id('AU'),time:new Date().toISOString(),actor,event:tx.status==='posted'?'Transaction posted':'Transaction held for review',target:tx.id});return {db:next,check,transaction:tx};}
+export function reverse(db,txId,actor,reason){if(!String(reason).trim())throw Error('A reversal reason is required');const n=structuredClone(db),old=n.entries.find(x=>x.id===txId);if(!old||old.status!=='posted'||old.voided)throw Error('Entry not found or already reversed');const rev={...old,id:id('REV'),reversalOf:old.id,description:'Reversal: '+reason,lines:old.lines.map(l=>({...l,debit:l.credit,credit:l.debit})),createdAt:new Date().toISOString(),source:'Admin reversal'};if(!balanced(rev.lines))throw Error('Reversal is unbalanced');n.entries.unshift(rev);old.reversedBy=rev.id; // Keep original and equal/opposite journal as an auditable pair.
+ rev.voided=false; n.audit.unshift({id:id('AU'),time:new Date().toISOString(),actor,event:'Reversed posted transaction',target:old.id,reason});return n;}
+export function closeDay(db,businessId,date,counts,explanations={}){const n=structuredClone(db),balances=accountBalances(n,businessId,date);const existing=n.closes.find(c=>c.businessId===businessId&&c.date===date);if(existing)throw Error('Day already closed');const differences={};for(const a of MONEY_ACCOUNTS){if(counts[a]===''||counts[a]===null||counts[a]===undefined||!Number.isFinite(Number(counts[a]))||Number(counts[a])<0)throw Error('Count every money account.');differences[a]=amt(counts[a])-amt(balances[a]);}const maxDiff=Math.max(...Object.values(differences).map(Math.abs));const unresolved=Object.entries(differences).some(([a,d])=>Math.abs(d)>Math.max(n.settings.closeTolerance,Math.abs(balances[a])*n.settings.closePercentage/100)&&!explanations[a]);const close={id:id('DAY'),businessId,date,counts:Object.fromEntries(MONEY_ACCOUNTS.map(a=>[a,amt(counts[a])])),book:Object.fromEntries(MONEY_ACCOUNTS.map(a=>[a,amt(balances[a])])),differences,explanations,status:unresolved?'Follow-up required':'Closed',createdAt:new Date().toISOString()};n.closes.push(close);n.audit.unshift({id:id('AU'),time:new Date().toISOString(),actor:'Business',event:'Daily money reconciliation',target:close.id});return {db:n,close,maxDiff};}
+export function rating(db,businessId){const rs=db.ratings.filter(x=>x.businessId===businessId).sort((a,b)=>b.date.localeCompare(a.date));return rs[0]||null;}
+export function recordRating(db,businessId,scores,officer){const caps={cash:25,completeness:25,correctness:20,timeliness:15,stock:15};for(const [k,max] of Object.entries(caps))if(!(Number(scores[k])>=0&&Number(scores[k])<=max))throw Error('Invalid rating criterion: '+k);const n=structuredClone(db),score=Object.keys(caps).reduce((s,k)=>s+Math.round(Number(scores[k])),0),r={id:id('RATE'),businessId,date:today(),scores,score,band:score>=90?'Excellent':score>=70?'Good':score>=50?'Okay':'Poor',officer};n.ratings.unshift(r);return {db:n,result:r};}
+export function credit(db,businessId){
+ const b=db.businesses.find(x=>x.id===businessId);if(!b)return null;
+ const tx=db.entries.filter(e=>e.businessId===businessId&&e.status==='posted'&&!e.voided&&!e.isOpening&&!e.reversalOf&&!e.reversedBy);
+ const unique=tx.length,monthCount=new Set(tx.map(e=>e.date.slice(0,7))).size;
+ const daysClosed=db.closes.filter(c=>c.businessId===businessId&&c.status==='Closed').length;
+ const r=rating(db,businessId);
+ const kyc=b.kycApproved?100:Math.min(79,Math.round([b.owner,b.phone,b.name,b.sector,b.nida,b.address].filter(Boolean).length/6*80));
+ const reliability=unique?Math.round(100*tx.filter(e=>(e.source==='Statement'&&e.reconciliationStatus==='matched')||e.reviewedBy).length/unique):0;
+ const prior=db.loans.filter(x=>x.businessId===businessId&&!x.external);
+ const repaid=prior.filter(x=>x.status==='Closed');
+ const pastInstalments=prior.flatMap(l=>l.schedule||[]).filter(p=>p.date<=today());
+ const paidOnTime=pastInstalments.length?100*pastInstalments.filter(p=>p.paid>=p.amount&&p.paidAt&&p.paidAt.slice(0,10)<=p.date).length/pastInstalments.length:0;
+ const seriousArrears=prior.some(l=>l.status==='Overdue'||(l.schedule||[]).some(p=>p.date<today()&&p.paid<p.amount))||db.loans.some(l=>l.businessId===businessId&&l.external&&!l.archived&&l.overdue>0);
+ const repeat=prior.length>0;
+ // The Records Rating measures documentation quality; repayment behaviour remains a separate score component.
+ const weights=repeat?{kyc:10,coverage:20,transactions:10,history:10,rating:20,repayment:30}:{kyc:15,coverage:25,transactions:20,history:10,rating:30,repayment:0};
+ const pieces={kyc:kyc/100,coverage:reliability/100,transactions:Math.min(1,unique/300),history:Math.min(1,monthCount/3),rating:(r?.score||0)/100,repayment:seriousArrears?0:(pastInstalments.length?paidOnTime/100:(repaid.length?1:0.5))};
+ const score=Math.round(Object.entries(weights).reduce((total,[key,w])=>total+w*pieces[key],0));
+ const s=statement(db,businessId),months=Math.max(1,monthCount),cashFlow=Math.max(0,(s?.profit||0)/months);
+ const share=repaid.length>=2?.35:repaid.length===1?.30:.25;
+ const existing=db.loans.filter(l=>l.businessId===businessId&&(l.status==='Active'||l.external)&&!l.archived).reduce((z,l)=>z+monthlyPayment(l.instalment||0,l.frequency||'Monthly'),0);
+ const capacity=Math.max(0,Math.round(cashFlow*db.settings.creditBuffer*share-existing));
+ const ratingFresh=r&&((new Date(today())-new Date(r.date))/86400000)<=45;
+ const gates={kyc:kyc>=80,coverage:reliability>=70,transactions:unique>=30,history:monthCount>=3,rating:!!r&&r.score>=db.settings.minRating&&ratingFresh,notOverdue:!seriousArrears,score:score>=db.settings.qualifyingScore,cashFlow:capacity>0};
+ return {score,weights,kyc,reliab:reliability,unique,monthCount,rating:r,daysClosed,capacity,share,existing,cashFlow,paymentOnTime:paidOnTime,gates,qualified:Object.values(gates).every(Boolean)};
+}
+export function monthlyPayment(amount,frequency='Monthly'){return amt(amount)*(frequency==='Daily'?30:frequency==='Weekly'?52/12:1)};
+export function offer(db,businessId,product,amount,periods){const cr=credit(db,businessId),rate=(Number(product.annualRate)||0)/100,fee=(Number(product.feeRate)||0)/100;const cadence=product.frequency||'Monthly';const maxPeriods=cadence==='Daily'?90:cadence==='Weekly'?52:36;const maxP=Math.min(product.maxPeriods||maxPeriods,maxPeriods);if(periods<1||periods>maxP)throw Error('Tenure outside allowed range');const perYear=cadence==='Daily'?365:cadence==='Weekly'?52:12;const monthlyRate=rate/perYear;const principal=amt(amount);const payment=monthlyRate?principal*monthlyRate/(1-(1+monthlyRate)**-periods):principal/periods;const first=Math.ceil(payment+principal*fee);const capacity=cr?.capacity||0;const maxPrincipal=(cr?.qualified&&capacity>0)?Math.max(0,Math.floor((capacity/(cadence==='Daily'?30:cadence==='Weekly'?52/12:1))/(1+(fee||0)) /(monthlyRate?monthlyRate/(1-(1+monthlyRate)**-periods):1/periods))):0;return {principal,periods,cadence,firstInstalment:first,regularInstalment:Math.ceil(payment),totalRepayment:Math.ceil(payment*periods+principal*fee),eligible:!!cr?.qualified&&monthlyPayment(first,cadence)<=capacity&&principal<=product.max&&principal>=product.min,maxPrincipal};}
+export function addMonthsSafe(date,count){const d=new Date(date+'T00:00:00Z');const day=d.getUTCDate();d.setUTCDate(1);d.setUTCMonth(d.getUTCMonth()+count);const end=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate();d.setUTCDate(Math.min(day,end));return d.toISOString().slice(0,10);}
+export function nextDate(date,frequency,n){if(frequency==='Monthly')return addMonthsSafe(date,n);const d=new Date(date+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n*(frequency==='Weekly'?7:1));return d.toISOString().slice(0,10);}
+export function schedule(amount,rateAnnual,feeRate,frequency,periods,firstDate){const p=amt(amount),r=Number(rateAnnual)/100/(frequency==='Daily'?365:frequency==='Weekly'?52:12);const regular=r?p*r/(1-(1+r)**-periods):p/periods;let left=p;return Array.from({length:periods},(_,i)=>{const interest=Math.round(left*r),principal=i===periods-1?left:Math.min(left,Math.max(0,Math.round(regular-interest)));left-=principal;return {n:i+1,date:nextDate(firstDate,frequency,i),principal,interest,fee:i===0?Math.round(p*Number(feeRate)/100):0,amount:principal+interest+(i===0?Math.round(p*Number(feeRate)/100):0),paid:0};});}
+export function groupKpis(db){const registered=db.businesses.length,active=db.businesses.filter(b=>new Set(db.entries.filter(e=>e.businessId===b.id&&e.status==='posted').map(e=>e.date)).size>=db.settings.activeDays).length;const qualified=db.businesses.filter(b=>credit(db,b.id)?.qualified).length;const requested=db.applications.reduce((s,x)=>s+amt(x.amount),0),funded=db.loans.filter(x=>!x.external).reduce((s,x)=>s+amt(x.principal),0);return {registered,active,qualified,readiness:registered?Math.round(qualified/registered*100):0,requested,funded,financingGap:Math.max(0,requested-funded),unbanked:registered?Math.round(db.businesses.filter(x=>x.unbankedAtEntry).length/registered*100):0};}
+export function immutableReview(db,entryId,action,actor,reason){if(!reason?.trim())throw Error('Provide an explanation');const n=structuredClone(db);const x=n.staging.find(e=>e.id===entryId);if(!x)throw Error('Review item unavailable');if(action==='approve'){x.status='posted';x.reviewedBy=actor;n.entries.unshift({...x});}else if(action==='return')x.status='returned';else if(action==='reject')x.status='rejected';else throw Error('Invalid review action');n.audit.unshift({id:id('AU'),time:new Date().toISOString(),actor,event:action,target:entryId,reason});return n;}

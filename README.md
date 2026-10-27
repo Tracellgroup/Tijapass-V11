@@ -1,62 +1,68 @@
-# TijaPass V10 — Integrated MSME Financial Management & Credit Ecosystem
+# TijaPass V11 — Premium Responsive UI Overhaul (Demonstration)
 
-A **browser-based, non-production demonstration** of a simplified Kiswahili/English business-recording experience, a deterministic double-entry ledger, daily reconciliation, records assessment, financial statements, multi-role workflows, FI loan products, customer consent, supplier quotations, loan offers and repayments.
+**Platform operator:** Tracell Finance Limited  
+**Version:** 11.0.0 — user-interface redesign built on the V10 accounting, credit and fictional October 2026 test-data modules.
 
-**Never use this build to store real NIDA/ID details, personal documents, bank credentials, sensitive financial records or move real money.** Demo PINs, browser-held data, role-based navigation and simulated financing are not security controls.
+## What this version contains
 
-## Quick demo deployment
+- Redesigned two-panel sign-in on desktop, clear single-column sign-in on mobile and a discreet expandable demo-credentials section.
+- Correct white/orange logo on navy surfaces and navy/orange logo on white surfaces.
+- Adaptive desktop navigation, compact-sidebar option, mobile drawer, labelled icons and dedicated navigation headings.
+- Responsive typography, forms, statistics, buttons and scroll-contained financial tables.
+- New tabbed financial statements with reporting dates and print/save-PDF option.
+- Dedicated Supplier dashboard, catalogue, quotation, order/delivery, messaging, wallet-status and profile screens.
+- Reduced repeated Admin panels and corrected Officer initial navigation.
+- Reworked read-only aggregated BOT dashboard, including gender/age diversity and records-review status.
+- Tanzania (EAT)-local business date selection.
+- Retained V10 double-entry, credit, loan, daily-close and October fictional test-data modules.
 
-1. Create a NEW GitHub repository `Tijapass-V10` so your V9 site remains untouched.
-2. Extract the ZIP; upload the **contents of this folder** to the root of the repository. Commit.
-3. Netlify → Add new project → Import from GitHub → select the new repository.
-4. Build command: `npm run build`; publish: `dist` (also set in netlify.toml).
-5. Open the new Netlify URL; confirm the build says Published.
-6. On the login screen, select English or Kiswahili. Use the documented demo accounts or register a fictional enterprise. Never use real personal data in this browser demo.
-7. To demonstrate eligibility: register a fictional enterprise → sign out → sign in as Data Admin → approve its profile and opening balances → generate **synthetic** activity for 95 days and submit a Records Rating → sign back in as enterprise → grant FI consent in Profile → request eligible finance → sign in as FI → assess and offer → enterprise accepts → FI simulates disbursement → enterprise simulates repayment. Source and FI actions read from the same test data in that browser.
+**Not included:** production authentication, real payment processing, live AI, remote data synchronisation, true PDF statement extraction, certified accounting, completed bilingual proofing, verified regulatory reporting or live-user security controls. Data and test credentials are stored in this browser. **Use fabricated data only.**
 
-### Demo sign-ins
+## Run locally (developer)
 
-- Super user: `super@tijapass.demo` / `123456`
-- Data Admin / Accountant: `admin@tijapass.demo` / `123456`
-- Officer: `officer@tijapass.demo` / `123456`
-- FI: `fi@tijapass.demo` / `123456`
-- Supplier: `supplier@tijapass.demo` / `123456`
-- Reports: `reports@tijapass.demo` / `123456`
+Requires Node.js 20 or newer and an internet connection for the first `npm install`.
 
-Business signs up with a fictional phone and a 6-character test PIN. FI and Supplier self-registration creates pending test organisations that must be approved by TijaPass Admin. These test logins **are not production authentication**.
+```sh
+npm install
+npm run dev
+npm test
+npm run build
+```
 
-## V10 design principles
+For Netlify: **build command** `npm run build`; **publish directory** `dist`. `netlify.toml` contains those values.
 
-- One posting engine and one trial balance; income statements, business positions and the cash flow are derived from the same double-entry journal.
-- Daily closing never silently changes profit. Differences remain follow-up items; do not auto-create sales or expenses.
-- Reversals preserve original entries plus balancing reversal entries; no deletion of posted financial evidence.
-- Description-first transaction entry with simple English/Kiswahili phrase recognition. Unknown purposes require clarification. **No real large-language-model integration is active.**
-- Self-declared, externally supported and TijaPass-reviewed records have distinct labels. A statement upload is not bank authentication.
-- Unified scoring weights and fixed policy gates. Credit qualification is indicative, lender approval is separate, and existing instalments reduce available repayment capacity.
-- Data starts with **zero businesses, zero transactions and zero loans**. Only explicit synthetic test generation can populate a scenario.
-- Role-specific sign-in and menus are **demonstration UI**. Role access, FI consent, approvals and money movements must be enforced in the server/database before a real pilot.
+## Demo sign-in
 
-## Files
+| Role | Username | Test password |
+| --- | --- | --- |
+| Super User | `super@tijapass.demo` | `123456` |
+| Data Admin / Accountant | `admin@tijapass.demo` | `123456` |
+| Field Officer | `officer@tijapass.demo` | `123456` |
+| FI | `fi@tijapass.demo` | `123456` |
+| Supplier | `supplier@tijapass.demo` | `123456` |
+| Aggregated Reports | `reports@tijapass.demo` | `123456` |
 
-- `src/App.jsx`: business, admin, FI, supplier and reports interfaces.
-- `src/v10Core.js`: accounting, reconciliation, Records Rating, loan scoring/affordability, statement generation.
-- `src/v10Loan.js`: shared request, appraisal, FI offer, acceptance, disbursement and repayment lifecycle.
-- `src/v10Locale.js`: customer-facing Kiswahili/English vocabulary.
-- `tests/v10-core.test.mjs`, `tests/v10-lifecycle.test.mjs`: automated reference-domain test scenarios.
-- `docs/V10_MASTER_SPEC.md`: requirements, decisions and remaining work.
-- `docs/V10_RELEASE_STATUS.md`: detailed implementation status and important limitations.
-- `docs/DEVELOPER_HANDOFF.md`: production implementation sequence.
+To add sample data: Super User → **Settings** → **October 2026 fictional MSME test data** → **Load**. Sign in as a sample business using its telephone number in `demo_samples/V10_sample_profiles.csv` and PIN `246810`.
 
-### Local developer checks
+The test batch contains 10 fictional MSMEs, 100 recorded transactions and eight **simulated records reviews** (not statutory audits). It includes five women and five men; five age 35 or younger and five older than 35. Only fictional test results appear in reports. Each profile has 10 transactions in October 2026, therefore none should meet the 3-month loan evidence requirement. Super User → Settings also includes a selective **Remove October sample data** operation; verify that the batch is no longer displayed before introducing other records.
 
-`npm install && npm test && npm run build`
+**Storage warning:** browser demo data are scoped to the website origin. A fresh V11 Netlify hostname starts with an empty business list; sample records from a V10 hostname do not transfer automatically. Browser storage is not suitable for a real shared pilot.
 
-Local npm package fetching was unavailable in the authoring environment. The source parser, core/lifecycle automated tests and ZIP were checked, **but the complete Vite production build and device-browser workflows still require validation on Netlify**.
+## Browser-only GitHub deployment
 
-### Payment architecture
+Read `docs/V11_BROWSER_UPDATE_GUIDE.md` for safe branch → browser-editor → pull request steps and for the seven files that changed compared with the October V10 package. No GitHub Desktop installation is required.
 
-The current wallet and loan funds are **simulations only**. For real-money operations: use regulated financial/payment partners for deposits, settlement and withdrawal. Keep provider keys in protected server functions, not Vite client variables.
+## Important verification note
 
+The source passed 28 V10 accounting/control tests, seven loan lifecycle tests, the October sample-dataset checks, and 11 V11 UI-source contract checks. TypeScript parsed all JS/JSX modules and PostCSS parsed the stylesheet. **A full Vite production build and rendered Chrome browser test could not be executed in the authoring environment**, because npm packages were not available locally and browser navigation was restricted. The GitHub/Netlify build and device acceptance tests in `docs/V11_UAT_CHECKLIST.md` are required prior to considering this release visually verified.
 
-## Optional October 2026 sample data
-This edition adds a removable ten-business October test dataset. See `docs/OCTOBER_2026_SAMPLE_DATA_GUIDE.md`. Load and remove it through **Super user → Settings**. It is fictional and contains eight simulated record reviews, not statutory audits.
+## File structure
+
+- `src/App.jsx`: V11 interface and role-specific views
+- `src/styles.css`: V11 design system and responsive layouts
+- `src/v10Core.js`: retained accounting/credit engine; local-date formatting update
+- `src/v10Loan.js`: retained loan lifecycle
+- `src/v10DemoSeed.js`: fictional October sample-data loader/remover
+- `docs/`: functional specification, V11 changes and acceptance checklist
+- `design_previews/`: optional **static HTML layout mock-ups**, not interactive app screenshots
+- `tests/`: inherited financial tests and V11 UI-source checks

@@ -1,14 +1,14 @@
 {
-  "name": "tijapass-v10-business-finance",
-  "version": "10.0.0",
+  "name": "tijapass-v11-ui-overhaul",
+  "version": "11.0.0",
   "private": true,
-  "description": "TijaPass V10 - bilingual MSME accounting, reconciliation, credit and financial inclusion demonstration",
+  "description": "TijaPass V11 UI overhaul \u2014 responsive role-based browser demonstration built on V10 accounting and credit engines",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node tests/v10-core.test.mjs && node tests/v10-lifecycle.test.mjs && node tests/v10-sample-dataset.test.mjs"
+    "test": "node tests/v10-core.test.mjs && node tests/v10-lifecycle.test.mjs && node tests/v10-sample-dataset.test.mjs && node tests/v11-ui-contract.test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
